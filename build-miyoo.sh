@@ -78,7 +78,11 @@ echo "  artifact: ${APPDIR}"
 
 # git-rev must carry the _miyoo platform tag so frontend/device.lua probes it
 sed -i 's/_linux$/_miyoo/' "${APPDIR}/git-rev" || true
-grep -q '_miyoo' "${APPDIR}/git-rev" || echo "v0.0.0_miyoo" >> "${APPDIR}/git-rev"
+# A --depth 1 clone has no tags, so VERSION was empty and git-rev would be just
+# "_miyoo"; provide a sane fallback so version parsing never breaks.
+if ! grep -qE '^v[0-9][^_]*_miyoo' "${APPDIR}/git-rev"; then
+    echo "v0.0.0_miyoo" > "${APPDIR}/git-rev"
+fi
 echo "  git-rev: $(cat "${APPDIR}/git-rev")"
 
 # koreader.sh: remove KO_MULTIUSER (would force the Desktop/SDL device probe)
@@ -102,25 +106,41 @@ cp -av "${APPDIR}" "${STAGE}/koreader"
 
 mkdir -p "${OUT_DIR}"
 python3 - <<'PY'
-import os, stat, zipfile
+import os, zipfile
 
 stage = "/tmp/onion"
 out = os.environ.get("OUT_DIR", "/dist") + "/koreader-miyoo-onion.zip"
 count = 0
+skipped = 0
 with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
     for root, dirs, files in os.walk(stage):
         for f in sorted(files):
             p = os.path.join(root, f)
             arc = os.path.relpath(p, "/tmp")
+            # The build creates some files as symlinks (Makefile SYMLINK mechanism).
+            # Follow the link and store the real content; skip broken links.
+            if os.path.islink(p):
+                real = os.path.realpath(p)
+                if not os.path.exists(real):
+                    print("  WARN: skip broken symlink", arc, "->", os.readlink(p))
+                    skipped += 1
+                    continue
+                p = real
+            try:
+                with open(p, "rb") as fh:
+                    data = fh.read()
+            except OSError as e:
+                print("  WARN: skip unreadable file", arc, ":", e)
+                skipped += 1
+                continue
             zi = zipfile.ZipInfo(arc)
             mode = os.stat(p).st_mode
             # Preserve unix permissions (executable bits for launch.sh / binaries)
             zi.external_attr = (mode & 0xFFFF) << 16
             zi.compress_type = zipfile.ZIP_DEFLATED
-            with open(p, "rb") as fh:
-                z.writestr(zi, fh.read())
+            z.writestr(zi, data)
             count += 1
-print(f"  {out}: {count} files")
+print(f"  {out}: {count} files packed, {skipped} skipped")
 PY
 
 ls -la "${OUT_DIR}/"
