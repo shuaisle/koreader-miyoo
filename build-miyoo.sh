@@ -92,10 +92,10 @@ sed -i 's/LC_ALL="en_US.UTF-8"/LC_ALL="C.UTF-8"/' "${APPDIR}/koreader.sh" || tru
 chmod +x "${APPDIR}/koreader.sh"
 
 # --- [4/4] Package as Onion App ----------------------------------------------
-echo "==> [4/4] Packaging Onion app (Apps/KOReader/)"
+echo "==> [4/4] Packaging Onion app (App/KOReader/)"
 
-STAGE="/tmp/onion/Apps/KOReader"
-rm -rf /tmp/onion
+STAGE="/tmp/App/KOReader"
+rm -rf /tmp/App
 mkdir -p "${STAGE}"
 
 cp -v "${PORT_DIR}/app/config.json" "${STAGE}/config.json"
@@ -106,11 +106,43 @@ chmod +x "${STAGE}/launch.sh"
 # at base/build artifacts; we must copy real content, not links)
 cp -aLv "${APPDIR}" "${STAGE}/koreader"
 
+# --- [3.5] Bundle glibc for Miyoo + retarget dynamic linker -------------------
+# Miyoo's system glibc is too old (GLIBC_2.34 missing). Ship the build
+# container's glibc (Ubuntu 22.04 armhf = glibc 2.35) inside koreader/libs and
+# point every executable at our ld-linux so luajit stops loading /lib/libc.so.6.
+echo "==> [3.5] Bundling glibc 2.35 and retargeting dynamic linker"
+
+apt-get update -qq >/dev/null 2>&1 || true
+apt-get install -y -qq patchelf >/dev/null 2>&1 || echo "  WARN: patchelf install failed"
+
+GLIBCDIR=/usr/lib/arm-linux-gnueabihf
+if [ ! -d "${GLIBCDIR}" ]; then
+    echo "  ERROR: ${GLIBCDIR} not found — cannot bundle glibc"
+    exit 1
+fi
+for lib in ld-linux-armhf.so.3 libc.so.6 libm.so.6 libpthread.so.0 libdl.so.2 librt.so.1 libgcc_s.so.1; do
+    if [ -e "${GLIBCDIR}/${lib}" ]; then
+        cp -L "${GLIBCDIR}/${lib}" "${STAGE}/koreader/libs/"
+        echo "  + ${lib}"
+    fi
+done
+
+if ! command -v patchelf >/dev/null 2>&1; then
+    echo "  ERROR: patchelf unavailable"
+    exit 1
+fi
+for bin in luajit sdcv; do
+    if [ -e "${STAGE}/koreader/${bin}" ]; then
+        patchelf --set-interpreter /mnt/SDCARD/App/KOReader/koreader/libs/ld-linux-armhf.so.3 "${STAGE}/koreader/${bin}"
+        echo "  ${bin} interpreter -> $(patchelf --print-interpreter "${STAGE}/koreader/${bin}")"
+    fi
+done
+
 mkdir -p "${OUT_DIR}"
 python3 - <<'PY'
 import os, zipfile
 
-stage = "/tmp/onion"
+stage = "/tmp/App"
 out = os.environ.get("OUT_DIR", "/dist") + "/koreader-miyoo-onion.zip"
 count = 0
 skipped = 0
