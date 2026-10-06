@@ -134,6 +134,11 @@ chmod +x "${STAGE}/launch.sh"
 # at base/build artifacts; we must copy real content, not links)
 cp -aLv "${APPDIR}" "${STAGE}/koreader"
 
+# Miyoo keymap fix: write the community-verified keymap into settings/ so it
+# overrides the built-in table at startup (and is user-tweakable without a rebuild).
+mkdir -p "${STAGE}/koreader/settings"
+cp -v "${PORT_DIR}/app/event_map.lua" "${STAGE}/koreader/settings/event_map.lua"
+
 # --- [3.5] Bundle glibc/libstdc++ for Miyoo + retarget dynamic linker -----------
 # Miyoo's system glibc is too old (GLIBC_2.34 missing) and its libstdc++ lacks
 # GLIBCXX_3.4.29 (liblunasvg/rapidjson are C++). Ship the build container's
