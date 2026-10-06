@@ -1,6 +1,6 @@
 {
-  "label": "KOReader",
-  "icon": "/mnt/SDCARD/Apps/KOReader/icon.png",
-  "launch": "/mnt/SDCARD/Apps/KOReader/launch.sh",
-  "description": "KOReader ebook reader (EPUB/PDF/TXT)"
+	"label":	"KOReader",
+	"icon":	"/mnt/SDCARD/App/KOReader/icon.png",
+	"launch":	"launch.sh",
+	"description":	"KOReader ebook reader (EPUB/PDF/TXT)"
 }
