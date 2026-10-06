@@ -112,9 +112,6 @@ cp -aLv "${APPDIR}" "${STAGE}/koreader"
 # point every executable at our ld-linux so luajit stops loading /lib/libc.so.6.
 echo "==> [3.5] Bundling glibc 2.35 and retargeting dynamic linker"
 
-apt-get update -qq >/dev/null 2>&1 || true
-apt-get install -y -qq patchelf >/dev/null 2>&1 || echo "  WARN: patchelf install failed"
-
 GLIBCDIR=/usr/lib/arm-linux-gnueabihf
 if [ ! -d "${GLIBCDIR}" ]; then
     echo "  ERROR: ${GLIBCDIR} not found — cannot bundle glibc"
@@ -127,16 +124,49 @@ for lib in ld-linux-armhf.so.3 libc.so.6 libm.so.6 libpthread.so.0 libdl.so.2 li
     fi
 done
 
-if ! command -v patchelf >/dev/null 2>&1; then
-    echo "  ERROR: patchelf unavailable"
-    exit 1
-fi
-for bin in luajit sdcv; do
-    if [ -e "${STAGE}/koreader/${bin}" ]; then
-        patchelf --set-interpreter /mnt/SDCARD/App/KOReader/koreader/libs/ld-linux-armhf.so.3 "${STAGE}/koreader/${bin}"
-        echo "  ${bin} interpreter -> $(patchelf --print-interpreter "${STAGE}/koreader/${bin}")"
-    fi
-done
+# Retarget the ELF interpreter WITHOUT patchelf (not available in this image):
+# append the new interpreter path to the end of the file and repoint PT_INTERP.
+python3 - <<'PY'
+import os, struct
+
+def set_interp(path, new_interp):
+    with open(path, "rb") as f:
+        data = bytearray(f.read())
+    if data[:4] != b"\x7fELF":
+        print(f"  WARN: {path} is not an ELF file")
+        return
+    e_phoff = struct.unpack_from("<I", data, 0x1c)[0]
+    e_phentsize = struct.unpack_from("<H", data, 0x2a)[0]
+    e_phnum = struct.unpack_from("<H", data, 0x2c)[0]
+    new_bytes = new_interp.encode() + b"\x00"
+    for i in range(e_phnum):
+        off = e_phoff + i * e_phentsize
+        p_type = struct.unpack_from("<I", data, off)[0]
+        if p_type != 3:  # PT_INTERP
+            continue
+        p_vaddr = struct.unpack_from("<I", data, off + 8)[0]
+        p_paddr = struct.unpack_from("<I", data, off + 12)[0]
+        if len(data) % 8:
+            data.extend(b"\x00" * (8 - len(data) % 8))
+        new_off = len(data)
+        data.extend(new_bytes)
+        struct.pack_into("<IIII", data, off + 4, new_off, p_vaddr, p_paddr, len(new_bytes))
+        with open(path, "wb") as f:
+            f.write(data)
+        with open(path, "rb") as f:  # verify
+            _ = f.read()
+        print(f"  {path}: interpreter -> {new_interp}")
+        return
+    print(f"  WARN: {path} has no PT_INTERP")
+
+INTERP = "/mnt/SDCARD/App/KOReader/koreader/libs/ld-linux-armhf.so.3"
+for name in ("luajit", "sdcv"):
+    p = os.path.join("/tmp/App/KOReader/koreader", name)
+    if os.path.exists(p):
+        set_interp(p, INTERP)
+    else:
+        print(f"  (skip {name}: not present)")
+PY
 
 mkdir -p "${OUT_DIR}"
 python3 - <<'PY'
