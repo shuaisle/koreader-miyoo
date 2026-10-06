@@ -1,0 +1,57 @@
+name: Build KOReader for Miyoo Mini
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (armhf via QEMU)
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Checkout port
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm
+
+      - name: Fetch KOReader source
+        run: |
+          git clone --depth 1 https://github.com/koreader/koreader.git /tmp/koreader
+          cd /tmp/koreader
+          git submodule update --init --depth 1 --jobs 4 --recursive
+
+      # Cache the compiled base (luajit, koreader-input, thirdparty libs).
+      # First run is a full build (~2h); subsequent runs with an unchanged
+      # KOReader source take only minutes.
+      - name: Cache KOReader base build
+        uses: actions/cache@v4
+        with:
+          path: /tmp/koreader/base/build
+          key: koreader-base-build-v1
+
+      - name: Build in armhf container
+        run: |
+          mkdir -p dist
+          docker run --platform=linux/arm/v7 --rm \
+            -v "$PWD:/port:ro" \
+            -v /tmp/koreader:/src \
+            -v "$PWD/dist:/dist" \
+            -e KOREADER_SRC=/src \
+            -e OUT_DIR=/dist \
+            -e PARALLEL_JOBS=4 \
+            koreader/koappimage:5.0.0-22.04 \
+            bash /port/build-miyoo.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: koreader-miyoo-onion
+          path: dist/
+          if-no-files-found: error
