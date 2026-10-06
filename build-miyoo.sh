@@ -102,7 +102,9 @@ cp -v "${PORT_DIR}/app/config.json" "${STAGE}/config.json"
 cp -v "${PORT_DIR}/app/launch.sh"    "${STAGE}/launch.sh"
 cp -v "${PORT_DIR}/app/icon.png"     "${STAGE}/icon.png"
 chmod +x "${STAGE}/launch.sh"
-cp -av "${APPDIR}" "${STAGE}/koreader"
+# -L: dereference symlinks (the build output is mostly a symlink farm pointing
+# at base/build artifacts; we must copy real content, not links)
+cp -aLv "${APPDIR}" "${STAGE}/koreader"
 
 mkdir -p "${OUT_DIR}"
 python3 - <<'PY'
@@ -115,6 +117,9 @@ skipped = 0
 with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
     for root, dirs, files in os.walk(stage):
         for f in sorted(files):
+            if f.endswith(".dbg"):
+                # skip debug-symbol files (luajit.dbg / sdcv.dbg): huge, unused
+                continue
             p = os.path.join(root, f)
             arc = os.path.relpath(p, "/tmp")
             # The build creates some files as symlinks (Makefile SYMLINK mechanism).

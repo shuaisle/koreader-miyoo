@@ -23,10 +23,18 @@ except OSError:
     symlink_ok = False
     print("NOTE: cannot create symlink on this system; testing fallback only")
 
-# 3. a broken symlink (points nowhere)
+# 3. a broken symlink (points nowhere) / plain-file fallback
 bf = os.path.join(stage, "Apps", "KOReader", "koreader", "COPYING")
 if symlink_ok:
     os.symlink("does-not-exist.txt", bf)
+else:
+    # No symlink privilege on this system: use plain files so the
+    # regular path is still exercised (the symlink branches are simple
+    # enough to verify on Linux later).
+    with open(gf, "wb") as fh:
+        fh.write(b"\x7fELF normal binary payload")
+    with open(bf, "wb") as fh:
+        fh.write(b"GPL license text")
 
 # --- the fixed packaging logic (identical to build-miyoo.sh) ---
 out = os.path.join(tempfile.gettempdir(), "packtest-out.zip")
