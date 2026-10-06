@@ -65,6 +65,12 @@ function Device:init()
         event_map = require("device/miyoo/event_map_miyoo"),
     }
 
+    -- The Miyoo's framebuffer is mounted upside-down, so we rotate the *screen*
+    -- (KOReader SW rotation) to compensate. The physical buttons do NOT move,
+    -- so disable KOReader's rotation_map: otherwise every screen rotation would
+    -- also invert Up/Down/Left/Right (and page-turn keys), which is wrong here.
+    self.input:disableRotationMap()
+
     -- Open the first available evdev input device.
     local opened = false
     for _, path in ipairs(self.input_devices) do
