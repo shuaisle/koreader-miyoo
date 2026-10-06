@@ -105,9 +105,10 @@ echo "  artifact: ${APPDIR}"
 # git-rev must carry the _miyoo platform tag so frontend/device.lua probes it
 sed -i 's/_linux$/_miyoo/' "${APPDIR}/git-rev" || true
 # A --depth 1 clone has no tags, so VERSION was empty and git-rev would be just
-# "_miyoo"; provide a sane fallback so version parsing never breaks.
-if ! grep -qE '^v[0-9][^_]*_miyoo' "${APPDIR}/git-rev"; then
-    echo "v0.0.0_miyoo" > "${APPDIR}/git-rev"
+# "_miyoo"; provide a valid vYYYY.MM fallback (frontend/version.lua needs
+# v(%d%d%d%d).(%d%d), "v0.0.0" does NOT match and crashes plugin loading).
+if ! grep -qE '^v[0-9]{4}\.[0-9]{2}\.[0-9]+[^_]*_miyoo' "${APPDIR}/git-rev"; then
+    echo "v2026.09.1_miyoo" > "${APPDIR}/git-rev"
 fi
 echo "  git-rev: $(cat "${APPDIR}/git-rev")"
 
@@ -133,10 +134,11 @@ chmod +x "${STAGE}/launch.sh"
 # at base/build artifacts; we must copy real content, not links)
 cp -aLv "${APPDIR}" "${STAGE}/koreader"
 
-# --- [3.5] Bundle glibc for Miyoo + retarget dynamic linker -------------------
-# Miyoo's system glibc is too old (GLIBC_2.34 missing). Ship the build
-# container's glibc (Ubuntu 22.04 armhf = glibc 2.35) inside koreader/libs and
-# point every executable at our ld-linux so luajit stops loading /lib/libc.so.6.
+# --- [3.5] Bundle glibc/libstdc++ for Miyoo + retarget dynamic linker -----------
+# Miyoo's system glibc is too old (GLIBC_2.34 missing) and its libstdc++ lacks
+# GLIBCXX_3.4.29 (liblunasvg/rapidjson are C++). Ship the build container's
+# glibc 2.35 + libstdc++ (Ubuntu 22.04 armhf) inside koreader/libs and point
+# every executable at our ld-linux so luajit stops loading /lib/libc.so.6.
 echo "==> [3.5] Bundling glibc 2.35 and retargeting dynamic linker"
 
 GLIBCDIR=/usr/lib/arm-linux-gnueabihf
@@ -144,7 +146,7 @@ if [ ! -d "${GLIBCDIR}" ]; then
     echo "  ERROR: ${GLIBCDIR} not found — cannot bundle glibc"
     exit 1
 fi
-for lib in ld-linux-armhf.so.3 libc.so.6 libm.so.6 libpthread.so.0 libdl.so.2 librt.so.1 libgcc_s.so.1; do
+for lib in ld-linux-armhf.so.3 libc.so.6 libm.so.6 libpthread.so.0 libdl.so.2 librt.so.1 libgcc_s.so.1 libstdc++.so.6; do
     if [ -e "${GLIBCDIR}/${lib}" ]; then
         cp -L "${GLIBCDIR}/${lib}" "${STAGE}/koreader/libs/"
         echo "  + ${lib}"
