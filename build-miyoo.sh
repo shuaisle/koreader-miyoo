@@ -55,9 +55,35 @@ assert old in s, "[patch02] pattern not found in device.lua"
 s = s.replace(old, new, 1)
 io.open(p, "w", encoding="utf-8").write(s)
 print("  [02] miyoo branch added to device.lua")
+# 03: provide a default generateFakeEvent() so libkoreader-input links.
+# input.c calls it unconditionally in the "fake_events" branch; every platform
+# header (kindle/kobo/...) implements it, generic Linux/Miyoo gets a no-op that
+# keeps the fake-event child alive without injecting any events.
+p = "base/input/input.c"
+s = io.open(p, encoding="utf-8").read()
+old = '''#elif defined(CERVANTES)
+#    include "input-cervantes.h"
+#endif'''
+new = '''#elif defined(CERVANTES)
+#    include "input-cervantes.h"
+#else
+// Generic fallback (Miyoo Mini & other Linux targets): keep the fake-event
+// child alive without injecting any events. The pipe stays open until this
+// child is killed via its PDEATHSIG.
+static void generateFakeEvent(int pipefd[2]) {
+    (void)pipefd;
+    for (;;) {
+        pause();
+    }
+}
+#endif'''
+assert old in s, "[patch03] pattern not found in input.c"
+s = s.replace(old, new, 1)
+io.open(p, "w", encoding="utf-8").write(s)
+print("  [03] generateFakeEvent fallback added to input.c")
 PY
 
-# 03: install the Miyoo device backend into the source tree
+# 04: install the Miyoo device backend into the source tree
 mkdir -p "${KOREADER_DIR}/frontend/device/miyoo"
 cp -v "${PORT_DIR}"/miyoo/*.lua "${KOREADER_DIR}/frontend/device/miyoo/"
 
@@ -87,8 +113,9 @@ echo "  git-rev: $(cat "${APPDIR}/git-rev")"
 
 # koreader.sh: remove KO_MULTIUSER (would force the Desktop/SDL device probe)
 sed -i '/export KO_MULTIUSER=1/d' "${APPDIR}/koreader.sh"
-# Use a locale that exists on minimal embedded systems
-sed -i 's/LC_ALL="en_US.UTF-8"/LC_ALL="C.UTF-8"/' "${APPDIR}/koreader.sh" || true
+# Use a locale that always exists: C.UTF-8 locale data is absent on Miyoo and
+# makes the whole koreader.sh path segfault (direct luajit run without it is fine)
+sed -i 's/export LC_ALL="en_US.UTF-8"/export LC_ALL="C"/' "${APPDIR}/koreader.sh" || true
 chmod +x "${APPDIR}/koreader.sh"
 
 # --- [4/4] Package as Onion App ----------------------------------------------
